@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+.hotl-install-*/
+.agents/hotl-backups/
+docs/.hotl.lock
+docs/.hotl-tmp-*
+.env
+.env.*
+!.env.example

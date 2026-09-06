@@ -1,0 +1,4 @@
+interface:
+  display_name: "Human on the Loop GPT"
+  short_description: "要件承認から実装・独立検証までを進め、中断後も状態から開発を再開する"
+  default_prompt: "$hotl-gpt を使って、このプロジェクトの開発を進めてください。"

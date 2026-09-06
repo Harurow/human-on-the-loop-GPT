@@ -1,0 +1,4 @@
+interface:
+  display_name: "HOTL GPT Project Manager"
+  short_description: "複数プロジェクトの状況を読み取り、指示と自律開発の担当を振り分ける"
+  default_prompt: "$hotl-gpt-pm で各プロジェクトの状況を確認し、進められる開発を続けてください。"
