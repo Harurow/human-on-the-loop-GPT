@@ -16,9 +16,13 @@ python3 /absolute/skill/scripts/hotl.py --project /absolute/project --expect 3 r
 | init | `{"request":"作りたいもの"}` | 新規状態のみ作成。既存の同名成果物を拒否 |
 | trace | なし | 読み取り専用。要件→仕様→タスク、承認、進捗、照合・証拠の鮮度と構造上の不足を生成 |
 | align | `{"actor":"実際の担当ID","detail":"意味と参照を照合した範囲・根拠"}` | 構造上の不足がない文書の版を記録。承認・実装・独立検証を付与しない |
+| questions | なし | 読み取り専用。人間の確認待ち・回答済みと対象変更を再計算 |
+| ask | 下記 | 判断が必要な項目をQ-nで登録。同じkeyの再送は同じ項目を返す |
+| answer | 下記 | 質問後に届いたユーザー入力へ関連付け、指定した1件だけ閉じる |
+| withdraw | `{"question_id":"Q-1","detail":"対象の変更で旧質問を取り下げ"}` | 理由付きで取り下げ。承認や回答を付与しない |
 | status | なし | 読み取りのみ。未処理入力、承認、停止、ログの鮮度 |
 | check | なし | 承認の整合性を検査。改変検知時は承認をリセットしてコード2 |
-| sync | なし | 状態から log.md を再生成。状態の revision は変えない |
+| sync | なし | 状態から log.md と user-checks.md を再生成。状態の revision は変えない |
 | receive | 下記 | 一度の保存でメッセージの全 intent を登録 |
 | resolve | `{"input_id":"I-2","outcome":"task","task_id":"T-3","detail":"修正を登録"}` | 指定入力だけを処理済みにする |
 | dismiss | `{"input_id":"I-1","outcome":"superseded","detail":"新版を提示したため旧版への承認は適用しない"}` | 取り下げ・後続指示による無効化。理由必須 |
@@ -134,3 +138,24 @@ requirements/spec/design/tasks の4文書は gitignore にかかわらず必ず�
 traceは停止中・承認失効中も読み取り可能で、状態やログを変更しない。構造問題はresultではなくトップレベルのissuesに返す（診断取得成功の終了0を、整合性合格と扱わない）。
 alignは既存の楽観ロック・原子的保存を使用する。記録後の文書変更はtraceで検出され、completeは再照合まで拒否する。
 旧プロジェクトの状態を初期化せず、alignを初めて成功させた時点でこの完了時検査を有効にする。既存の承認・停止・独立レビュー条件は緩和しない。
+
+
+## 人間の確認待ち
+
+[運用方針](user-checks.md)。askの例:
+
+```json
+{"key":"export-review-v1","kind":"decision","title":"出力形式を選ぶ","reason":"利用先によって保存形式が変わるため","recommendation":"既存の利用先に合わせる","options":["形式A","形式B"],"related":["R-1","T-2"],"targets":["docs/spec.md"],"blocking":true}
+```
+
+kindはdecision / permission / visual_check。blockingは必須bool。options/related/targetsは省略可。targetsはプロジェクト内の既存ファイルを相対パスで指定し、内容ハッシュを記録する。対象外の外部リビジョンは質問本文で具体的に特定する。秘密情報を本文にもファイルにも登録しない。
+
+answerの例:
+
+```json
+{"question_id":"Q-1","input_id":"I-8","outcome":"answered","answer":"形式Aを採用する"}
+```
+
+input_idは質問後にreceiveした未処理のinstruction。回答が複数質問にまたがる場合はreceiveでintentを分ける。outcomeはaccepted / declined / answered。要件承認は従来のpresent/approveを使い、answerでは付与できない。質問の対象が変わっていれば回答登録を拒否し、withdraw後に新しいkeyで再提示する。同じkeyで内容や対象版を差し替えない。
+
+stateのquestionsが正本。user-checks.mdは生成物としてsnapshot対象外。生成失敗はstateを巻き戻さず、statusのuser_checks_staleで検出しsyncで復旧する。手書きの同名ファイルやシンボリックリンクを上書きしない。

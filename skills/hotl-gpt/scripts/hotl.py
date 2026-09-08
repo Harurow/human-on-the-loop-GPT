@@ -120,6 +120,52 @@ class Store:
             lines += [entry["text"], ""]
         return "\n".join(lines).encode()
 
+    def questions(self, state):
+        # 方針：人に判断してもらう項目だけを集める。AIが処理すべき未処理入力は混ぜない。
+        rows = copy.deepcopy(state.get("questions", []))
+        for row in rows:
+            row["stale"] = any(self.question_target_hash(path) != sha for path, sha in row["targets"].items())
+        if state.get("presented"):
+            presented = state["presented"]
+            rows.insert(0, dict(id="approval:" + presented["sha256"][:12], kind="requirements_approval",
+                title="提示した要件の承認", reason=presented["summary"], related=["docs/requirements.md"],
+                status="open", blocking=True, recommendation="提示した内容と差分を確認してください",
+                options=[], stale=not self.question_target_hash("docs/requirements.md") == presented["sha256"],
+                targets={"docs/requirements.md": presented["sha256"]}))
+        return rows
+
+    def question_target_hash(self, relative):
+        path = self.root / relative
+        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(self.root):
+            return None
+        return digest(path.read_bytes())
+
+    def questions_bytes(self, state):
+        def safe(value):
+            return str(value).replace("|", "\\|").replace("\n", "<br>")
+        lines = ["# あなたの確認待ち", "", "<!-- Generated from hotl.state.json. Do not edit. -->", "",
+                 "この一覧は自動生成です。回答はチャットで項目IDとともに伝えてください。未回答を承認として扱いません。", "",
+                 "|ID|種類|確認内容・理由|おすすめ・選択肢|関連|状態|", "|---|---|---|---|---|---|"]
+        active = [q for q in self.questions(state) if q["status"] == "open"]
+        for q in active:
+            status = "対象が変更済み・再提示が必要" if q["stale"] else "回答待ち"
+            status += "（関連作業を保留）" if q["blocking"] else "（他の作業は続行可）"
+            lines.append("|" + "|".join(map(safe, [q["id"], {"requirements_approval":"要件承認", "decision":"方針・選択", "permission":"実行許可", "visual_check":"見た目の確認"}[q["kind"]], q["title"] + "：" + q["reason"],
+                q["recommendation"] + " / " + "・".join(q["options"]), ", ".join(q["related"] + list(q["targets"])), status])) + "|")
+        if not active:
+            lines += ["", "現在、登録された確認待ちはありません。"]
+        lines += ["", "## 回答・取り下げ済み", ""]
+        for q in self.questions(state):
+            if q["status"] != "open":
+                lines.append("- %s：%s — %s" % (safe(q["id"]), {"accepted":"承諾済み", "declined":"見送り", "answered":"回答済み", "withdrawn":"取り下げ"}[q["status"]], safe(q.get("answer", q.get("detail", "")))))
+        return ("\n".join(lines) + "\n").encode()
+
+    def project_questions(self, state):
+        path = self.docs / "user-checks.md"
+        require(not path.exists() or b"<!-- Generated from hotl.state.json. Do not edit. -->" in path.read_bytes(),
+                "Existing user-checks.md is not a generated file; preserve it and choose an explicit migration")
+        atomic_write(path, self.questions_bytes(state))
+
     def save(self, state):
         state["revision"] += 1
         state["updated_at"] = now()
@@ -127,8 +173,9 @@ class Store:
         # The canonical commit is complete. A failed projection is repairable with sync.
         try:
             atomic_write(self.docs / "log.md", self.log_bytes(state))
+            self.project_questions(state)
         except (OSError, WorkflowError) as exc:
-            print("State saved; log projection needs sync: " + str(exc), file=sys.stderr)
+            print("State saved; generated projections need sync: " + str(exc), file=sys.stderr)
 
     def document_hash(self, filename="requirements.md"):
         path = self.docs / filename
@@ -176,7 +223,7 @@ class Store:
         for raw in sorted(paths):
             name = os.fsdecode(raw)
             parts = Path(name).parts
-            if name in {"docs/hotl.state.json", "docs/log.md", "docs/.hotl.lock"}:
+            if name in {"docs/hotl.state.json", "docs/log.md", "docs/user-checks.md", "docs/.hotl.lock"}:
                 continue
             if parts[0] == ".agents" or name.startswith("docs/reviews/") or any(p.startswith(".hotl-tmp-") for p in parts):
                 continue
@@ -262,6 +309,9 @@ class Store:
         return dict(project=state["project"], phase=state["phase"], revision=state["revision"],
                     paused=state["paused"], approval_valid=self.approval_valid(state),
                     pending=[i for i in state["inputs"] if i["outcome"] is None],
+                    user_checks=[q for q in self.questions(state) if q["status"] == "open"],
+                    user_checks_stale=(not (self.docs / "user-checks.md").is_file() or (self.docs / "user-checks.md").is_symlink()
+                                       or (self.docs / "user-checks.md").read_bytes() != self.questions_bytes(state)),
                     writers=state["writers"], reviews=state["reviews"],
                     log_stale=log.is_symlink() or not log.is_file() or log.read_bytes() != self.log_bytes(state))
 
@@ -270,11 +320,13 @@ class Store:
             return self.summary(self.read())
         if command == "trace":
             return self.trace(self.read())
+        if command == "questions":
+            return {"questions": self.questions(self.read())}
         with self.lock():
             if command == "init":
                 require(not self.path.exists(), "State already exists; use status")
                 require(not any((self.docs / n).exists() for n in
-                                ("log.md", "requirements.md", "spec.md", "design.md", "tasks.md", "hearing-notes.md", "lessons.md")),
+                                ("log.md", "user-checks.md", "requirements.md", "spec.md", "design.md", "tasks.md", "hearing-notes.md", "lessons.md")),
                         "Existing workflow document names; choose a clean project or explicitly migrate")
                 require(not (self.root / ".agents/skills/hotl-gpt-pm").exists() and
                         not list(self.root.glob("*/docs/hotl.state.json")),
@@ -291,8 +343,9 @@ class Store:
                 require(state["revision"] == expected, "Stale revision; read status and reconsider the operation")
             if command == "sync":
                 atomic_write(self.docs / "log.md", self.log_bytes(state))
+                self.project_questions(state)
                 return self.summary(state)
-            if command not in {"receive", "note", "dismiss", "resume"} and state["approval"] and not self.approval_valid(state):
+            if command not in {"receive", "note", "dismiss", "resume", "ask", "answer", "withdraw"} and state["approval"] and not self.approval_valid(state):
                 self.reset(state, "Approved requirements changed or disappeared")
                 self.save(state)
                 raise WorkflowError("Approval invalidated. Inspect the requirements difference before proceeding")
@@ -303,6 +356,45 @@ class Store:
             return {"result": result, **self.summary(state)}
 
     def apply(self, state, command, p):
+        if command == "ask":
+            key = nonempty(p, "key")
+            require(p.get("kind") in {"decision", "permission", "visual_check"}, "Use present/approve for requirements approval")
+            require(type(p.get("blocking")) is bool, "Specify whether this decision blocks related work")
+            require(isinstance(p.get("options", []), list) and all(isinstance(x, str) and x.strip() for x in p.get("options", [])), "Invalid options")
+            require(isinstance(p.get("related", []), list) and all(isinstance(x, str) and x.strip() for x in p.get("related", [])), "Invalid related references")
+            targets = {}
+            require(isinstance(p.get("targets", []), list), "targets must be a list of relative file paths")
+            for relative in p.get("targets", []):
+                require(isinstance(relative, str) and not Path(relative).is_absolute() and ".." not in Path(relative).parts
+                        and not any(part.startswith(".env") for part in Path(relative).parts), "Invalid or secret target path")
+                sha = self.question_target_hash(relative)
+                require(sha is not None, "Missing regular target file: " + relative)
+                targets[relative] = sha
+            body = dict(key=key, kind=p["kind"], title=nonempty(p, "title"), reason=nonempty(p, "reason"),
+                        recommendation=nonempty(p, "recommendation"), options=p.get("options", []),
+                        related=p.get("related", []), targets=targets, blocking=p["blocking"])
+            old = next((q for q in state.get("questions", []) if q["key"] == key), None)
+            if old:
+                require(all(old[k] == value for k, value in body.items()), "Question key reused with different content or target; withdraw and create a new key")
+                return old["id"]
+            rows = state.setdefault("questions", [])
+            row = dict(id="Q-" + str(len(rows) + 1), status="open", at=now(), input_count=len(state["inputs"]), **body)
+            rows.append(row)
+            self.event(state, "question", json.dumps(row, ensure_ascii=False), row["id"])
+            return row["id"]
+        if command in {"answer", "withdraw"}:
+            row = next((q for q in state.get("questions", []) if q["id"] == p.get("question_id")), None)
+            require(row is not None and row["status"] == "open", "No open question; requirement approvals use approve/reset")
+            if command == "withdraw":
+                row.update(status="withdrawn", detail=nonempty(p, "detail"))
+            else:
+                item = get_input(state, p, "instruction")
+                require(state["inputs"].index(item) >= row["input_count"], "Answer predates the question")
+                require(not next(q for q in self.questions(state) if q["id"] == row["id"])["stale"], "Target changed; withdraw and present a new question")
+                require(p.get("outcome") in {"accepted", "declined", "answered"}, "Invalid answer outcome")
+                row.update(status=p["outcome"], answer=nonempty(p, "answer"), input_id=item["id"])
+                resolve(self, state, item, "answered", row["id"] + ": " + row["answer"])
+            return self.event(state, "question-closed", json.dumps(row, ensure_ascii=False), row["id"])
         if command == "align":
             require(not state["paused"], "Paused; alignment must wait for explicit resume")
             report = self.trace(state)
@@ -445,6 +537,7 @@ class Store:
             self.guard(state)
             require(state["phase"] == "development", "Not in development")
             require(not any(i["outcome"] is None for i in state["inputs"]), "Unresolved user inputs remain")
+            require(not any(q["status"] == "open" and q["blocking"] for q in self.questions(state)), "Blocking user decisions remain")
             if state.get("alignment"):
                 report = self.trace(state)
                 require(not report["issues"] and report["alignment"] == "current",
@@ -504,7 +597,7 @@ def main():
     parser.add_argument("--expect", type=int, help="Reject stale state revisions")
     parser.add_argument("command", choices=["init", "status", "sync", "check", "receive", "resolve", "dismiss",
                         "resume", "note", "reset", "transition", "present", "approve", "reopen",
-                        "work", "snapshot", "review", "complete", "trace", "align"])
+                        "work", "snapshot", "review", "complete", "trace", "align", "questions", "ask", "answer", "withdraw"])
     parser.add_argument("--input", help="JSON payload file, or - for stdin; never a shell-interpolated body")
     args = parser.parse_args()
     try:
