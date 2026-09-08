@@ -14,6 +14,12 @@ import sys
 import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import importlib.util
+
+# Load the sibling helper even when another process imports this CLI by file path.
+_trace_spec = importlib.util.spec_from_file_location("hotl_traceability", Path(__file__).with_name("traceability.py"))
+_trace = importlib.util.module_from_spec(_trace_spec)
+_trace_spec.loader.exec_module(_trace)
 
 
 FRAMEWORK = "human-on-the-loop-GPT"
@@ -216,6 +222,41 @@ class Store:
         require(path.stat().st_size > 0, "Empty evidence")
         return digest(path.read_bytes())
 
+    def trace(self, state):
+        # 方針：本文と進捗の正本はMarkdown。ここでは複写せず、参照から現在の一覧を作る。
+        # 照合記録は確認した版だけを保存し、承認・実装・検証の代わりにはしない。
+        report = _trace.inspect_documents(self.docs)
+        alignment = state.get("alignment")
+        report["alignment"] = ("not_recorded" if not alignment else
+                               "current" if alignment["documents"] == report["documents"] else "needs_reconciliation")
+        report["approval"] = "approved" if self.approval_valid(state) else "outdated" if state["approval"] else "not_approved"
+        report["pending_inputs"] = [i["id"] for i in state["inputs"] if i["outcome"] is None]
+        report["paused"] = state["paused"]
+        report["requirements"] = []
+        for item in report["items"]:
+            if not item["id"].startswith(("R-", "NR-")):
+                continue
+            specs = [node["id"] for node in report["items"] if node["id"].startswith("S-") and item["id"] in node["refs"]]
+            tasks = [node for node in report["items"] if node["id"].startswith("T-")
+                     and set(node["refs"]) & set([item["id"]] + specs)]
+            report["requirements"].append(dict(id=item["id"], specifications=specs,
+                tasks=[dict(id=node["id"], progress=node["progress"]) for node in tasks],
+                approval=report["approval"]))
+        report["semantics"] = "requires_human_or_agent_review"
+        report["verification"] = "not_checked"
+        if state["reviews"]:
+            try:
+                snapshot = self.snapshot()
+                latest = {r["role"]: r for r in state["reviews"]}
+                fresh = all(r["result"] == "pass" and r["snapshot"] == snapshot
+                            and r["evidence_sha256"] == self.evidence_hash(r["evidence"])
+                            for r in latest.values())
+                report["verification"] = "current_recorded_reviews" if fresh else "stale_or_failed"
+                report["review_roles"] = sorted(latest)
+            except (WorkflowError, OSError):
+                report["verification"] = "unavailable"
+        return report
+
     def summary(self, state):
         log = self.docs / "log.md"
         return dict(project=state["project"], phase=state["phase"], revision=state["revision"],
@@ -227,6 +268,8 @@ class Store:
     def execute(self, command, payload, expected=None):
         if command == "status":
             return self.summary(self.read())
+        if command == "trace":
+            return self.trace(self.read())
         with self.lock():
             if command == "init":
                 require(not self.path.exists(), "State already exists; use status")
@@ -260,6 +303,13 @@ class Store:
             return {"result": result, **self.summary(state)}
 
     def apply(self, state, command, p):
+        if command == "align":
+            require(not state["paused"], "Paused; alignment must wait for explicit resume")
+            report = self.trace(state)
+            require(not report["issues"], "Traceability issues: " + "; ".join(report["issues"]))
+            state["alignment"] = dict(documents=report["documents"], at=now(),
+                                      actor=nonempty(p, "actor"), detail=nonempty(p, "detail"))
+            return self.event(state, "alignment", json.dumps(state["alignment"], ensure_ascii=False))
         if command == "check":
             require(state["phase"] not in AUTONOMOUS or self.approval_valid(state), "Autonomous phase has no valid approval")
             return "ok"
@@ -395,6 +445,10 @@ class Store:
             self.guard(state)
             require(state["phase"] == "development", "Not in development")
             require(not any(i["outcome"] is None for i in state["inputs"]), "Unresolved user inputs remain")
+            if state.get("alignment"):
+                report = self.trace(state)
+                require(not report["issues"] and report["alignment"] == "current",
+                        "Documents changed or traceability is incomplete; reconcile and align before completion")
             rows = self.tasks()
             require(all(t[0] in {"x", "-"} for t in rows), "Incomplete tasks remain")
             active = [t for t in rows if t[0] != "-"]
@@ -450,7 +504,7 @@ def main():
     parser.add_argument("--expect", type=int, help="Reject stale state revisions")
     parser.add_argument("command", choices=["init", "status", "sync", "check", "receive", "resolve", "dismiss",
                         "resume", "note", "reset", "transition", "present", "approve", "reopen",
-                        "work", "snapshot", "review", "complete"])
+                        "work", "snapshot", "review", "complete", "trace", "align"])
     parser.add_argument("--input", help="JSON payload file, or - for stdin; never a shell-interpolated body")
     args = parser.parse_args()
     try:

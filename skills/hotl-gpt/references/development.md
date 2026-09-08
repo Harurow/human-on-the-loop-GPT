@@ -149,6 +149,10 @@ CLI は通常 code/acceptance、限定的な説明文書修正では editorial �
 
 ## 完了と再開
 
+要件・仕様・タスクを記帳したら `trace` を確認する。意味・参照の照合を済ませて `align`。
+最終タスクのチェック変更も文書版を変えるため、最終snapshotより前に再度alignする。
+不足の扱いと旧プロジェクトへの導入は [traceability.md](traceability.md) に従う。
+
 実装状況・次の一手・検証範囲が変わったら、tasks.md の再開欄を追記の山にせず更新する。
 引継ぎの項目と別コンテキストによる確認方法は [continuity.md](continuity.md)。
 
