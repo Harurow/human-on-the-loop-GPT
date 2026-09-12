@@ -109,6 +109,7 @@ class Store:
                 fcntl.flock(stream, fcntl.LOCK_UN)
 
     def event(self, state, kind, text, related=None):
+        require(related is None or isinstance(related, str), "Event related must be a string or null")
         ident = "E-" + str(len(state["events"]) + 1)
         state["events"].append(dict(id=ident, at=now(), kind=kind,
                                     text=text, related=related))
@@ -118,8 +119,11 @@ class Store:
         lines = ["# AgentTrail", "", "<!-- Generated from hotl.state.json; revision %s. Do not edit. -->" % state["revision"], ""]
         for entry in state["events"]:
             lines += ["## %s [%s] %s" % (entry["id"], entry["kind"], entry["at"]), ""]
-            if entry["related"]:
-                lines += ["Related: " + entry["related"], ""]
+            related = entry.get("related")
+            if related is not None and related != "":
+                # 旧版が保存した誤入力は正本を改変せずJSONとして表示する。
+                rendered = related if isinstance(related, str) else json.dumps(related, ensure_ascii=False)
+                lines += ["Related: " + rendered, ""]
             lines += [entry["text"], ""]
         return "\n".join(lines).encode()
 

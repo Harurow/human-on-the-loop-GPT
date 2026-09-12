@@ -6,12 +6,14 @@
 最初に [AGENTS.md](../AGENTS.md)、Git差分、このファイルを確認する。
 判断の根拠は [PRINCIPLES.md](../PRINCIPLES.md)、スキル入口は [SKILL.md](../skills/hotl-gpt/SKILL.md)。必要な参照だけを読む。
 
-## 現在地（2026-09-12）
+## 現在地（2026-09-13）
 
 - 共通開発ダッシュボードは `15a1899` で実装・push済み。表示、設定、既存renderer連携、導入先への反映方法は [仕様の正本](../skills/hotl-gpt/references/dashboard.md) を参照。
-- 再開時に全81テスト、整合性チェック、差分チェック成功。前回の独立検証・表示確認の範囲は [検証記録](validation.md) を参照。今回新たな独立検証を行ったとは扱わない。
+- note関連参照の復旧後に全84テスト、整合性チェック、差分チェック成功。前回の独立検証・表示確認の範囲は [検証記録](validation.md) を参照。今回の独立検証はnoteの入力型・旧履歴描画とCLI復旧に限定。
 - 既存の未コミット変更は `docs/validation.md`、`skills/hotl-gpt/SKILL.md`、`skills/hotl-gpt/references/continuity.md` の引き継ぎ・切替手順（追加12/7/46行）。保持対象であり、この再開作業のコミットへ混在させない。
 - 共通側に確認済みの未修正不具合や未完了のMVP実装はない。麻雀側の接続検証は別担当。麻雀本体・CTF・以前の動画案件へ勝手に着手しない。
+
+- noteの不正relatedによる記録生成障害を修正。過去の配列値を保持したまま麻雀のsyncが回復し、正本byte不変を確認済み。新規noteは文字列/null、askは従来通り配列。詳細は検証記録を参照。
 
 ## 次の一手
 

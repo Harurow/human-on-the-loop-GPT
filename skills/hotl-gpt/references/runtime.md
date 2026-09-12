@@ -28,7 +28,7 @@ python3 /absolute/skill/scripts/hotl.py --project /absolute/project --expect 3 r
 | resolve | `{"input_id":"I-2","outcome":"task","task_id":"T-3","detail":"修正を登録"}` | 指定入力だけを処理済みにする |
 | dismiss | `{"input_id":"I-1","outcome":"superseded","detail":"新版を提示したため旧版への承認は適用しない"}` | 取り下げ・後続指示による無効化。理由必須 |
 | resume | `{"input_id":"I-3"}` | 実際の resume 入力で停止解除 |
-| note | `{"kind":"decision","text":"判断と理由","related":"I-2"}` | 判断・指摘・提案・報告を E-n で追記 |
+| note | `{"kind":"decision","text":"判断と理由","related":"I-2"}` | 判断・指摘・提案・報告を E-n で追記。relatedは文字列またはnull（省略可）。配列は拒否 |
 | transition | `{"phase":"requirements"}` | hearing→requirements、specification→design、design→development のみ |
 | present | `{"summary":"提示する要件の要約と前回との差分"}` | 要件ハッシュを固定し awaiting_approval へ |
 | approve | `{"input_id":"I-1","by":"user","sha256":"presentの結果"}` | 提示後に受領した承認を適用し specification へ |

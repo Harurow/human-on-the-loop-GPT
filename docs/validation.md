@@ -176,3 +176,9 @@ ask/answer/withdraw/questionsを追加。質問の正本は各プロジェクト
 検証：全81テスト、check_consistency.py、quick_validate.py（既存PyYAMLキャッシュを一時参照）、git diff --check成功。独立担当 `/root/dashboard_validation` が16テストと一時プロジェクトでCLIのinit/ask/dashboard/sync、正本SHA不変、UIなし、既存renderer保持を確認。逆順handoffマーカー・Git除外取消・`.`パス入力の指摘を修正し、担当の最終16件再実行も成功。コピーインストール先での生成も自動テスト成功。
 
 実装担当は一時fixtureをブラウザー表示し、デスクトップ幅で名前・確認事項・進捗・UI資料の配置を目視確認した。サンプル画像を用いた表示確認であり、実アプリの製品検証ではない。独立担当によるブラウザー確認、スマートフォン実機、長期運用は未実施。gpt-game-projects、同配下mahjong、hotl-projects-gptのスキルが配布元へのシンボリックリンクであることを確認。既存実案件への設定変更や一括HTML再生成はしていない。コピー導入済みの別環境は更新インストールが必要。
+
+## noteの関連参照と旧履歴の復旧（2026-09-13）
+
+noteのrelatedに配列を渡すとイベント保存後のログ生成が失敗し、以後status/syncも失敗する不具合を修正。新規イベントはrelatedの文字列/nullを保存前に検証し、旧履歴の非文字列は正本を変えずJSON表示する。askのrelated配列契約は変更なし。
+
+全84テスト、整合性・差分チェック成功。独立担当 `/root/note_recovery_review` が新規3回帰テストと一時プロジェクトのCLIを別途実行。配列・object・bool・数値の拒否、過去値のstatus/sync成功、正本byte不変を確認し指摘なし。実装担当が影響を受けた麻雀でsyncを実行し、revision765の正本byte不変、log_stale=false、user_checks_stale=falseを確認。独自HTML・ゲーム機能・画像は変更なし。実案件への新規note書込みは検証目的で行っていない。
