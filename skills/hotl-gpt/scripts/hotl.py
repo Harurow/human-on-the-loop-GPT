@@ -20,6 +20,9 @@ import importlib.util
 _trace_spec = importlib.util.spec_from_file_location("hotl_traceability", Path(__file__).with_name("traceability.py"))
 _trace = importlib.util.module_from_spec(_trace_spec)
 _trace_spec.loader.exec_module(_trace)
+_dashboard_spec = importlib.util.spec_from_file_location("hotl_dashboard", Path(__file__).with_name("dashboard.py"))
+_dashboard = importlib.util.module_from_spec(_dashboard_spec)
+_dashboard_spec.loader.exec_module(_dashboard)
 
 
 FRAMEWORK = "human-on-the-loop-GPT"
@@ -166,6 +169,41 @@ class Store:
                 "Existing user-checks.md is not a generated file; preserve it and choose an explicit migration")
         atomic_write(path, self.questions_bytes(state))
 
+    def dashboard_bytes(self, state):
+        try:
+            return _dashboard.render(self, state)
+        except (ValueError, TypeError, KeyError, UnicodeError) as exc:
+            raise WorkflowError("Invalid dashboard source: " + str(exc)) from exc
+
+    def project_dashboard(self, state):
+        path = self.root / _dashboard.OUTPUT
+        require(not path.exists() or _dashboard.MARKER.encode() in path.read_bytes(),
+                "Existing review-dashboard.html is not generated; preserve it and migrate explicitly")
+        for parent in (self.root / "workbench", path.parent):
+            require(not parent.is_symlink(), "Dashboard parent must not be a symlink")
+            parent.mkdir(exist_ok=True)
+        self.dashboard_bytes(state)  # Validate sources before writing supporting files.
+        ignore = self.root / ".gitignore"
+        require(not ignore.is_symlink(), ".gitignore must not be a symlink")
+        previous = ignore.read_text() if ignore.exists() else ""
+        if "/workbench/" not in previous.splitlines():
+            atomic_write(ignore, (previous + ("\n" if previous and not previous.endswith("\n") else "") + "/workbench/\n").encode())
+        handoff = self.docs / "handoff.md"
+        if not handoff.exists() and not handoff.is_symlink():
+            atomic_write(handoff, ("# 引き継ぎ入口\n\n"
+                "[開発ダッシュボード](../workbench/development-dashboard/index.html) · "
+                "[タスクと再開](tasks.md) · [状態](hotl.state.json)\n\n"
+                "再開時はAGENTS.md、tasks.mdの再開欄、status/check、Git差分を照合し、保存済みの次の作業を進める。\n").encode())
+        atomic_write(path, self.dashboard_bytes(state))
+
+    def dashboard_status(self, state):
+        path = self.root / _dashboard.OUTPUT
+        try:
+            return dict(path=_dashboard.OUTPUT, stale=path.is_symlink() or not path.is_file()
+                        or path.read_bytes() != self.dashboard_bytes(state))
+        except (WorkflowError, OSError) as exc:
+            return dict(path=_dashboard.OUTPUT, stale=True, error=str(exc))
+
     def save(self, state):
         state["revision"] += 1
         state["updated_at"] = now()
@@ -174,6 +212,7 @@ class Store:
         try:
             atomic_write(self.docs / "log.md", self.log_bytes(state))
             self.project_questions(state)
+            self.project_dashboard(state)
         except (OSError, WorkflowError) as exc:
             print("State saved; generated projections need sync: " + str(exc), file=sys.stderr)
 
@@ -223,7 +262,7 @@ class Store:
         for raw in sorted(paths):
             name = os.fsdecode(raw)
             parts = Path(name).parts
-            if name in {"docs/hotl.state.json", "docs/log.md", "docs/user-checks.md", "docs/.hotl.lock"}:
+            if name in {"docs/hotl.state.json", "docs/log.md", "docs/user-checks.md", "workbench/development-dashboard/index.html", "docs/.hotl.lock"}:
                 continue
             if parts[0] == ".agents" or name.startswith("docs/reviews/") or any(p.startswith(".hotl-tmp-") for p in parts):
                 continue
@@ -307,7 +346,7 @@ class Store:
     def summary(self, state):
         log = self.docs / "log.md"
         return dict(project=state["project"], phase=state["phase"], revision=state["revision"],
-                    paused=state["paused"], approval_valid=self.approval_valid(state),
+                    dashboard=self.dashboard_status(state), paused=state["paused"], approval_valid=self.approval_valid(state),
                     pending=[i for i in state["inputs"] if i["outcome"] is None],
                     user_checks=[q for q in self.questions(state) if q["status"] == "open"],
                     user_checks_stale=(not (self.docs / "user-checks.md").is_file() or (self.docs / "user-checks.md").is_symlink()
@@ -344,6 +383,7 @@ class Store:
             if command == "sync":
                 atomic_write(self.docs / "log.md", self.log_bytes(state))
                 self.project_questions(state)
+                self.project_dashboard(state)
                 return self.summary(state)
             if command not in {"receive", "note", "dismiss", "resume", "ask", "answer", "withdraw"} and state["approval"] and not self.approval_valid(state):
                 self.reset(state, "Approved requirements changed or disappeared")

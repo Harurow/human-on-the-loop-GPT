@@ -58,6 +58,12 @@ description: HOTL によるアプリ開発の開始・再開・要件承認・�
 ユーザーの判断が必要になったら [user-checks.md](references/user-checks.md) に従いaskへ登録する。
 再開・報告時はquestionsを確認し、生成一覧をsyncする。AIの未処理作業をユーザーの宿題にしない。
 
+## 共通の開発ダッシュボード
+
+全HOTLプロジェクトで [dashboard.md](references/dashboard.md) に従い `workbench/development-dashboard/index.html` を生成・更新する。
+再開・進捗報告・中断時にtasks.mdの現在/次順/待ちを更新してsyncし、固定引き継ぎ入口からリンクする。
+UIがある場合は画面ごとの現在の画像・動画を索引化し、UIのない案件へ画像作成を強制しない。
+
 ## 入力を取りこぼさない
 
 状態変更を伴うユーザーの発言は、処理前に `receive` へ渡す。

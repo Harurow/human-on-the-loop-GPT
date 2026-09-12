@@ -20,9 +20,9 @@ python3 /absolute/skill/scripts/hotl.py --project /absolute/project --expect 3 r
 | ask | 下記 | 判断が必要な項目をQ-nで登録。同じkeyの再送は同じ項目を返す |
 | answer | 下記 | 質問後に届いたユーザー入力へ関連付け、指定した1件だけ閉じる |
 | withdraw | `{"question_id":"Q-1","detail":"対象の変更で旧質問を取り下げ"}` | 理由付きで取り下げ。承認や回答を付与しない |
-| status | なし | 読み取りのみ。未処理入力、承認、停止、ログの鮮度 |
+| status | なし | 読み取りのみ。未処理入力、承認、停止、ログとdashboardの鮮度・生成エラー |
 | check | なし | 承認の整合性を検査。改変検知時は承認をリセットしてコード2 |
-| sync | なし | 状態から log.md と user-checks.md を再生成。状態の revision は変えない |
+| sync | なし | 状態・tasks.md・任意のui-catalog.jsonから log.md、user-checks.md、workbench/development-dashboard/index.html を再生成。状態の revision は変えない |
 | receive | 下記 | 一度の保存でメッセージの全 intent を登録 |
 | resolve | `{"input_id":"I-2","outcome":"task","task_id":"T-3","detail":"修正を登録"}` | 指定入力だけを処理済みにする |
 | dismiss | `{"input_id":"I-1","outcome":"superseded","detail":"新版を提示したため旧版への承認は適用しない"}` | 取り下げ・後続指示による無効化。理由必須 |
@@ -159,3 +159,5 @@ answerの例:
 input_idは質問後にreceiveした未処理のinstruction。回答が複数質問にまたがる場合はreceiveでintentを分ける。outcomeはaccepted / declined / answered。要件承認は従来のpresent/approveを使い、answerでは付与できない。質問の対象が変わっていれば回答登録を拒否し、withdraw後に新しいkeyで再提示する。同じkeyで内容や対象版を差し替えない。
 
 stateのquestionsが正本。user-checks.mdは生成物としてsnapshot対象外。生成失敗はstateを巻き戻さず、statusのuser_checks_staleで検出しsyncで復旧する。手書きの同名ファイルやシンボリックリンクを上書きしない。
+
+確認画面の入力形式・更新・Git運用は [dashboard.md](dashboard.md)。生成HTMLは承認・タスク・検証の正本ではない。
