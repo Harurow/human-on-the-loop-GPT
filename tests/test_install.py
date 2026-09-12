@@ -23,6 +23,10 @@ class InstallTests(unittest.TestCase):
                                   "--project", folder, "init", "--input", "-"],
                                  input=b'{"request":"standalone installed copy"}', capture_output=True)
             self.assertEqual(run.returncode, 0, run.stderr)
+            dashboard = subprocess.run([sys.executable, str(base / "hotl-gpt/scripts/hotl.py"),
+                                        "--project", folder, "dashboard"], capture_output=True)
+            self.assertEqual(dashboard.returncode, 0, dashboard.stderr)
+            self.assertIn("開発ダッシュボード", (Path(folder) / "workbench/dashboard/index.html").read_text())
 
     def test_force_preserves_existing_install_in_backup(self):
         with tempfile.TemporaryDirectory() as folder:

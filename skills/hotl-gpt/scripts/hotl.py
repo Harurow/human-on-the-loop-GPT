@@ -20,6 +20,9 @@ import importlib.util
 _trace_spec = importlib.util.spec_from_file_location("hotl_traceability", Path(__file__).with_name("traceability.py"))
 _trace = importlib.util.module_from_spec(_trace_spec)
 _trace_spec.loader.exec_module(_trace)
+_dashboard_spec = importlib.util.spec_from_file_location("hotl_dashboard", Path(__file__).with_name("dashboard.py"))
+_dashboard = importlib.util.module_from_spec(_dashboard_spec)
+_dashboard_spec.loader.exec_module(_dashboard)
 
 
 FRAMEWORK = "human-on-the-loop-GPT"
@@ -341,10 +344,13 @@ class Store:
             state = self.read()
             if expected is not None:
                 require(state["revision"] == expected, "Stale revision; read status and reconsider the operation")
+            if command == "dashboard":
+                return _dashboard.generate(self, state, atomic_write, now())
             if command == "sync":
                 atomic_write(self.docs / "log.md", self.log_bytes(state))
                 self.project_questions(state)
-                return self.summary(state)
+                dashboard = _dashboard.generate(self, state, atomic_write, now())
+                return dict(self.summary(state), dashboard=dashboard)
             if command not in {"receive", "note", "dismiss", "resume", "ask", "answer", "withdraw"} and state["approval"] and not self.approval_valid(state):
                 self.reset(state, "Approved requirements changed or disappeared")
                 self.save(state)
@@ -597,7 +603,7 @@ def main():
     parser.add_argument("--expect", type=int, help="Reject stale state revisions")
     parser.add_argument("command", choices=["init", "status", "sync", "check", "receive", "resolve", "dismiss",
                         "resume", "note", "reset", "transition", "present", "approve", "reopen",
-                        "work", "snapshot", "review", "complete", "trace", "align", "questions", "ask", "answer", "withdraw"])
+                        "work", "snapshot", "review", "complete", "trace", "align", "questions", "ask", "answer", "withdraw", "dashboard"])
     parser.add_argument("--input", help="JSON payload file, or - for stdin; never a shell-interpolated body")
     args = parser.parse_args()
     try:
